@@ -17,19 +17,15 @@ const int enb = 3;    // Chân điều khiển tốc độ bánh phải (chân b
 const int in3 = 4;    // Chân input 3 điều khiển bánh phải
 const int in4 = 2;    // Chân input 4 điều khiển bánh phải
 
-// Cảm biến dò line
-const int rline = 8;  // Dò line bên phải
-const int mline = 9;  // Dò line giữa
-const int lline = 10; // Dò line bên trái
-
 // Chân cảm biến siêu âm đo khoảng cách
 const int echo = 12;  // Chân đo thời gian
 const int trig = 13;  // Chân phát sóng
 
 /* ------------------- Khai báo biến + hằng ------------------- */
 // Hằng
+const int MAX_RECORDING_LENGTH = 20; // Độ dài tối đa của Record
 const int armDelay = 10 ;   // Thời gian delay giữa 2 lần điều khiển
-const int avoidDelay = 20;  // Thời gian delay giữa 2 lần đo khoảng cách
+const int avoidDelay = 10;  // Thời gian delay giữa 2 lần đo khoảng cách
 const int minDistance = 30; // 20cm là khoảng cách tối thiểu để tránh vật cản
 const int maxDistance = 300;// Khoảng cách tối đa của hàm đo khoảng cách
                             // Mặc dù khoảng cách tối đa của cảm biến sóng âm là 450 cm
@@ -52,6 +48,16 @@ int gocVai;
 Servo hongServo;
 int hongMin, hongMax;
 int gocHong;
+
+// Biến record chuyển động tay
+int isRecordingArm = 0;
+int dsChuyenDongTay[20]; // 1 là bàn tay, 2 là khủy tay, 3 là vai, 4 là hông
+int gocBatDau[MAX_RECORDING_LENGTH];
+int gocKetThuc[MAX_RECORDING_LENGTH];
+int soChuyenDongTay = 0;
+
+// Biến khác
+int i, j;
 
 // Bluetooth
 SoftwareSerial Bluetooth(0, 1); // Khai báo RX = 0, TX = 1, kết nối tới HC06
@@ -136,49 +142,20 @@ void reTrai(int tocdo){
   tienPhai(tocdo);
 }
 
-/* --------------- Hàm dò line, tránh vật cản ----------------- */
-// Hàm dò line
-void doLine(){
-  int lech = 0;
-  
-  do{
-    // Nếu đang nằm trên line
-    if(digitalRead(mline)){
-      tienXe(150); // Đi với tốc độ vừa phải để dò line
-    }
-    
-    // Đang lệch sang bên trái do dò được line bên phải
-    else if(digitalRead(rline)){
-      // Rẽ phải tới khi không còn dò được line bên phải nữa
-      lech = 1;
-      rePhai(150);
-      while(digitalRead(rline));
-    }
+/* --------------- Hàm tránh vật cản ----------------- */
+// Đưa cánh tay về vị trí ban đầu
+void resetArm(){
+  gocBantay = 40;
+  bantayServo.write(gocBantay);
 
-    // Đang lệch sang bên phải do dò được line ở bên trái
-    else if(digitalRead(lline)){
-      // Rẽ trái tới khi không còn dò được line bên trái nữa
-      lech = -1;
-      reTrai(150);
-      while(digitalRead(lline));
-    }
+  gocKhuytay = 10;
+  khuytayServo.write(gocKhuytay);
 
-    // Trường hợp không dò được line ở bất kỳ cảm biến nào
-    // Nếu trước đó đang lệch trái (dò đc line bên phải)
-    else if(lech == 1){
-      rePhai(100); // Rẽ chậm để dò lại line
-    }
+  gocVai = 0;
+  vaiServo.write(gocVai);
 
-    // Nếu trước đó đang lệch phải
-    else if(lech == -1){
-      reTrai(100);
-    }
-
-    // Cuối vòng lặp, kiểm tra tín hiệu đến
-    if (Bluetooth.available() > 0){
-      dataIn = Bluetooth.read();
-    }
-  } while (dataIn == 13); // Nếu nhận được lệnh khác thì dừng dò line
+  gocHong = 90;
+  hongServo.write(gocHong);
 }
 
 // Hàm xác định khoảng cách bằng cảm biến siêu âm
@@ -202,11 +179,12 @@ int doKhoangCach(){
   // Sóng âm phải phát đi và dội lại nên khoảng cách phải chia 2
   int khoangcach = int (thoigian / 2 / 29.412);
   
-  return min(khoangcach, maxDistance); // giới hạn kết quả trả về (tối đa 300cm)
+  return min(khoangcach, maxDistance); // giới hạn kết quả trả về (tối đa 300cm = 3m)
 }
 
 // Hàm tránh vật cảm
-void tranhVatCan(){
+void tranhVatCan(){  
+  // Đo khoảng cách
   long khoangCachGiua = 0;
   long khoangCachPhai = 0;
   long khoangCachTrai = 0;
@@ -236,27 +214,19 @@ void tranhVatCan(){
       khoangCachTrai = doKhoangCach();
       delay(500);
 
-      // Quay lại hướng cũ (khoảng 90 độ)
-      rePhai(200);
-      delay(500);
-      dungXe();
-      delay(500);
-
       // Kiểm tra khoảng cách
       // Một trong 2 bên trống
       if(khoangCachTrai > minDistance || khoangCachPhai > minDistance){
         // Bên trái đường rộng rãi hơn
         if(khoangCachTrai > khoangCachPhai){
-          reTrai(200);
-          delay(500);
-          dungXe();
-          delay(500);
+          // Không làm gì do đã đi đúng hướng
         }
 
         // Ngược lại
         else{
+          // Đang rẽ trái nên quay ngược xe lại
           rePhai(200);
-          delay(500);
+          delay(1000);
           dungXe();
           delay(500);
         }
@@ -265,7 +235,7 @@ void tranhVatCan(){
       // Nếu cả 2 bên đều không có đường thì quay xe
       else{
         rePhai(200);
-        delay(1000);
+        delay(500);
         dungXe();
         delay(500);
       }
@@ -278,8 +248,11 @@ void tranhVatCan(){
     if(Bluetooth.available() > 0){
       dataIn = Bluetooth.read();
     }
-  }while(dataIn == 14);
+  }while(dataIn == 13);
 }
+
+/* ------------------- Hàm record -------------------- */
+
 
 /* ------------------- Hàm cài đặt ban đầu -------------------- */
 void setup() { 
@@ -301,11 +274,6 @@ void setup() {
   pinMode(in3, OUTPUT);
   pinMode(in4, OUTPUT);
 
-  // Chân dò line
-  pinMode(rline, INPUT);
-  pinMode(mline, INPUT);
-  pinMode(lline, INPUT);
-
   // Chân cảm biến sóng âm
   pinMode(trig, OUTPUT);
   pinMode(echo, INPUT);
@@ -315,29 +283,24 @@ void setup() {
   hongServo.attach(hongPin, 450, 2500); // mở rộng góc quay (0 -> 180) tính ra được thời gian ms: 450 -> 2500ms
   hongMin = 0;
   hongMax = 180;
-  gocHong = 90;
-  hongServo.write(gocHong);
 
   // Phần vai
   vaiServo.attach(vaiPin);
   vaiMin = 0;
   vaiMax = 60;
-  gocVai = 0;
-  vaiServo.write(gocVai);
   
   // Phần khủy tay
   khuytayServo.attach(khuytayPin);
   khuytayMin = 0;
   khuytayMax = 60;
-  gocKhuytay = 10;
-  khuytayServo.write(gocKhuytay);
 
   // Phần bàn tay
   bantayServo.attach(bantayPin);
   bantayMin = 20;
   bantayMax = 40;
-  gocBantay = 40;
-  bantayServo.write(gocBantay);
+
+  // Reset cánh tay về vị trí đầu
+  resetArm();
 } 
 
 /* -------------------      Hàm lặp       -------------------- */
@@ -382,150 +345,509 @@ void loop() {
     // App sẽ gửi tín hiệu dừng khi người dùng nhả phím
      
     // Tăng góc bàn tay 
-    while(dataIn == 5){
-      // Tăng góc
-      gocBantay ++;
-      gocBantay = constrain(gocBantay, bantayMin, bantayMax);
-      bantayServo.write(gocBantay);
-      delay(armDelay);
-      
-      // Kiểm tra tín hiệu gửi đến
-      // Khi người dùng nhả phím điều khiển, app sẽ gửi tới một mã dừng (99)
-      // Hoặc người dùng gửi mã khác
-      if(Bluetooth.available() > 0){
-        dataIn = Bluetooth.read();
+    if(dataIn == 5){
+      // Nếu đang record
+      if(isRecordingArm){
+        // Nếu chưa đạt tới số chuyển động tối đa
+        if(soChuyenDongTay < MAX_RECORDING_LENGTH){
+          dsChuyenDongTay[soChuyenDongTay] = 1; // Chuyển động bàn tay
+          gocBatDau[soChuyenDongTay] = gocBantay;
+        }
+      }
+
+      while(dataIn == 5){
+        // Tăng góc
+        gocBantay ++;
+        gocBantay = constrain(gocBantay, bantayMin, bantayMax);
+        bantayServo.write(gocBantay);
+        delay(armDelay);
+        
+        // Kiểm tra tín hiệu gửi đến
+        // Khi người dùng nhả phím điều khiển, app sẽ gửi tới một mã dừng (99)
+        // Hoặc người dùng gửi mã khác
+        if(Bluetooth.available() > 0){
+          dataIn = Bluetooth.read();
+  
+          // Kết thúc chuyển động
+          if(dataIn != 5 && isRecordingArm && soChuyenDongTay < MAX_RECORDING_LENGTH){
+            gocKetThuc[soChuyenDongTay] = gocBantay;
+            soChuyenDongTay ++;
+          }
+        }
       }
     }
+    
 
     // Giảm góc bàn tay
-    while(dataIn == 6){
-      // Giảm góc
-      gocBantay --;
-      gocBantay = constrain(gocBantay, bantayMin, bantayMax);
-      bantayServo.write(gocBantay);
-      delay(armDelay);
-      
-      // Kiểm tra tín hiệu gửi đến
-      // Khi người dùng nhả phím điều khiển, app sẽ gửi tới một mã dừng (99)
-      // Hoặc người dùng gửi mã khác
-      if(Bluetooth.available() > 0){
-        dataIn = Bluetooth.read(); 
+    if(dataIn == 6){
+      // Nếu đang record
+      if(isRecordingArm){
+        // Nếu chưa đạt tới số chuyển động tối đa
+        if(soChuyenDongTay < MAX_RECORDING_LENGTH){
+          dsChuyenDongTay[soChuyenDongTay] = 1; // Chuyển động bàn tay
+          gocBatDau[soChuyenDongTay] = gocBantay;
+        }
       }
-    }
 
-    // Tăng góc khủy tay
-    while(dataIn == 7){
-      // Tăng góc
-      gocKhuytay ++;
-      gocKhuytay = constrain(gocKhuytay, khuytayMin, khuytayMax);
-      khuytayServo.write(gocKhuytay);
-      delay(armDelay);
-      
-      // Kiểm tra tín hiệu gửi đến
-      // Khi người dùng nhả phím điều khiển, app sẽ gửi tới một mã dừng (99)
-      // Hoặc người dùng gửi mã khác
-      if(Bluetooth.available() > 0){
-        dataIn = Bluetooth.read();
+      while(dataIn == 6){
+        // Giảm góc
+        gocBantay --;
+        gocBantay = constrain(gocBantay, bantayMin, bantayMax);
+        bantayServo.write(gocBantay);
+        delay(armDelay);
+        
+        // Kiểm tra tín hiệu gửi đến
+        // Khi người dùng nhả phím điều khiển, app sẽ gửi tới một mã dừng (99)
+        // Hoặc người dùng gửi mã khác
+        if(Bluetooth.available() > 0){
+          dataIn = Bluetooth.read();
+
+          // Kết thúc chuyển động
+          if(dataIn != 6 && isRecordingArm && soChuyenDongTay < MAX_RECORDING_LENGTH){
+            gocKetThuc[soChuyenDongTay] = gocBantay;
+            soChuyenDongTay ++;
+          }
+        } 
       }
     }
+    
+    // Tăng góc khủy tay
+    if(dataIn == 7){
+      // Nếu đang record
+      if(isRecordingArm){
+        // Nếu chưa đạt tới số chuyển động tối đa
+        if(soChuyenDongTay < MAX_RECORDING_LENGTH){
+          dsChuyenDongTay[soChuyenDongTay] = 2; // Chuyển động khủy tay
+          gocBatDau[soChuyenDongTay] = gocKhuytay;
+        }
+      }
+
+      // Tăng liên tục cho tới khi có tín hiệu dừng
+      while(dataIn == 7){
+        // Tăng góc
+        gocKhuytay ++;
+        gocKhuytay = constrain(gocKhuytay, khuytayMin, khuytayMax);
+        khuytayServo.write(gocKhuytay);
+        delay(armDelay);
+        
+        // Kiểm tra tín hiệu gửi đến
+        // Khi người dùng nhả phím điều khiển, app sẽ gửi tới một mã dừng (99)
+        // Hoặc người dùng gửi mã khác
+        if(Bluetooth.available() > 0){
+          dataIn = Bluetooth.read();
+
+          // Kết thúc chuyển động
+          if(dataIn != 7 && isRecordingArm && soChuyenDongTay < MAX_RECORDING_LENGTH){
+            gocKetThuc[soChuyenDongTay] = gocKhuytay;
+            soChuyenDongTay ++;
+          }
+        }
+      }
+    }
+    
 
     // Giảm góc khủy tay
-    while(dataIn == 8){
-      // Giảm góc
-      gocKhuytay --;
-      gocKhuytay = constrain(gocKhuytay, khuytayMin, khuytayMax);
-      khuytayServo.write(gocKhuytay);
-      delay(armDelay);
-      
-      // Kiểm tra tín hiệu gửi đến
-      // Khi người dùng nhả phím điều khiển, app sẽ gửi tới một mã dừng (99)
-      // Hoặc người dùng gửi mã khác
-      if(Bluetooth.available() > 0){
-        dataIn = Bluetooth.read();
+    if(dataIn == 8){
+      // Nếu đang record
+      if(isRecordingArm){
+        // Nếu chưa đạt tới số chuyển động tối đa
+        if(soChuyenDongTay < MAX_RECORDING_LENGTH){
+          dsChuyenDongTay[soChuyenDongTay] = 2; // Chuyển động khủy tay
+          gocBatDau[soChuyenDongTay] = gocKhuytay;
+        }
       }
+
+      while(dataIn == 8){
+        // Giảm góc
+        gocKhuytay --;
+        gocKhuytay = constrain(gocKhuytay, khuytayMin, khuytayMax);
+        khuytayServo.write(gocKhuytay);
+        delay(armDelay);
+        
+        // Kiểm tra tín hiệu gửi đến
+        // Khi người dùng nhả phím điều khiển, app sẽ gửi tới một mã dừng (99)
+        // Hoặc người dùng gửi mã khác
+        if(Bluetooth.available() > 0){
+          dataIn = Bluetooth.read();
+
+          // Kết thúc chuyển động
+          if(dataIn != 8 && isRecordingArm && soChuyenDongTay < MAX_RECORDING_LENGTH){
+            gocKetThuc[soChuyenDongTay] = gocKhuytay;
+            soChuyenDongTay ++;
+          }
+        }
+      } 
     }
 
     // Tăng góc vai
-    while(dataIn == 9){
-      // Tăng góc
-      gocVai ++;
-      gocVai = constrain(gocVai, vaiMin, vaiMax);
-      vaiServo.write(gocVai);
-      delay(armDelay);
-      
-      // Kiểm tra tín hiệu gửi đến
-      // Khi người dùng nhả phím điều khiển, app sẽ gửi tới một mã dừng (99)
-      // Hoặc người dùng gửi mã khác
-      if(Bluetooth.available() > 0){
-        dataIn = Bluetooth.read();
+    if(dataIn == 9){
+      // Nếu đang record
+      if(isRecordingArm){
+        // Nếu chưa đạt tới số chuyển động tối đa
+        if(soChuyenDongTay < MAX_RECORDING_LENGTH){
+          dsChuyenDongTay[soChuyenDongTay] = 3; // Chuyển động vai
+          gocBatDau[soChuyenDongTay] = gocVai;
+        }
       }
-    }
 
-    // Giảm góc vai
-    while(dataIn == 10){
-      // Giảm góc
-      gocVai --;
-      gocVai = constrain(gocVai, vaiMin, vaiMax);
-      vaiServo.write(gocVai);
-      delay(armDelay);
-      
-      // Kiểm tra tín hiệu gửi đến
-      // Khi người dùng nhả phím điều khiển, app sẽ gửi tới một mã dừng (99)
-      // Hoặc người dùng gửi mã khác
-      if(Bluetooth.available() > 0){
-        dataIn = Bluetooth.read();
+      while(dataIn == 9){
+        // Tăng góc
+        gocVai ++;
+        gocVai = constrain(gocVai, vaiMin, vaiMax);
+        vaiServo.write(gocVai);
+        delay(armDelay);
+        
+        // Kiểm tra tín hiệu gửi đến
+        // Khi người dùng nhả phím điều khiển, app sẽ gửi tới một mã dừng (99)
+        // Hoặc người dùng gửi mã khác
+        if(Bluetooth.available() > 0){
+          dataIn = Bluetooth.read();
+
+          // Kết thúc chuyển động
+          if(dataIn != 9 && isRecordingArm && soChuyenDongTay < MAX_RECORDING_LENGTH){
+            gocKetThuc[soChuyenDongTay] = gocVai;
+            soChuyenDongTay ++;
+          }
+        }
       }
     }
+    
+    // Giảm góc vai
+    if(dataIn == 10){
+      // Nếu đang record
+      if(isRecordingArm){
+        // Nếu chưa đạt tới số chuyển động tối đa
+        if(soChuyenDongTay < MAX_RECORDING_LENGTH){
+          dsChuyenDongTay[soChuyenDongTay] = 3; // Chuyển động vai
+          gocBatDau[soChuyenDongTay] = gocVai;
+        }
+      }
+
+      while(dataIn == 10){
+        // Giảm góc
+        gocVai --;
+        gocVai = constrain(gocVai, vaiMin, vaiMax);
+        vaiServo.write(gocVai);
+        delay(armDelay);
+        
+        // Kiểm tra tín hiệu gửi đến
+        // Khi người dùng nhả phím điều khiển, app sẽ gửi tới một mã dừng (99)
+        // Hoặc người dùng gửi mã khác
+        if(Bluetooth.available() > 0){
+          dataIn = Bluetooth.read();
+
+          // Kết thúc chuyển động
+          if(dataIn != 10 && isRecordingArm && soChuyenDongTay < MAX_RECORDING_LENGTH){
+            gocKetThuc[soChuyenDongTay] = gocVai;
+            soChuyenDongTay ++;
+          }
+        }
+      }
+    }
+    
 
     // Tăng góc hông
-    while(dataIn == 11){
-      // Tăng góc
-      gocHong ++;
-      gocHong = constrain(gocHong, hongMin, hongMax);
-      hongServo.write(gocHong);
-      delay(armDelay);
-      
-      // Kiểm tra tín hiệu gửi đến
-      // Khi người dùng nhả phím điều khiển, app sẽ gửi tới một mã dừng (99)
-      // Hoặc người dùng gửi mã khác
-      if(Bluetooth.available() > 0){
-        dataIn = Bluetooth.read();
+    if(dataIn == 11){
+      // Nếu đang record
+      if(isRecordingArm){
+        // Nếu chưa đạt tới số chuyển động tối đa
+        if(soChuyenDongTay < MAX_RECORDING_LENGTH){
+          dsChuyenDongTay[soChuyenDongTay] = 4; // Chuyển động hông
+          gocBatDau[soChuyenDongTay] = gocHong;
+        }
+      }
+
+      while(dataIn == 11){
+        // Tăng góc
+        gocHong ++;
+        gocHong = constrain(gocHong, hongMin, hongMax);
+        hongServo.write(gocHong);
+        delay(armDelay);
+        
+        // Kiểm tra tín hiệu gửi đến
+        // Khi người dùng nhả phím điều khiển, app sẽ gửi tới một mã dừng (99)
+        // Hoặc người dùng gửi mã khác
+        if(Bluetooth.available() > 0){
+          dataIn = Bluetooth.read();
+
+          // Kết thúc chuyển động
+          if(dataIn != 11 && isRecordingArm && soChuyenDongTay < MAX_RECORDING_LENGTH){
+            gocKetThuc[soChuyenDongTay] = gocHong;
+            soChuyenDongTay ++;
+          }
+        }
       }
     }
+    
 
     // Giảm góc hông
-    while(dataIn == 12){
-      // Giảm góc
-      gocHong --;
-      gocHong = constrain(gocHong, hongMin, hongMax);
-      hongServo.write(gocHong);
-      delay(armDelay);
-      
-      // Kiểm tra tín hiệu gửi đến
-      // Khi người dùng nhả phím điều khiển, app sẽ gửi tới một mã dừng (99)
-      // Hoặc người dùng gửi mã khác
-      if(Bluetooth.available() > 0){
-        dataIn = Bluetooth.read();
+    if(dataIn == 12){
+      // Nếu đang record
+      if(isRecordingArm){
+        // Nếu chưa đạt tới số chuyển động tối đa
+        if(soChuyenDongTay < MAX_RECORDING_LENGTH){
+          dsChuyenDongTay[soChuyenDongTay] = 4; // Chuyển động hông
+          gocBatDau[soChuyenDongTay] = gocHong;
+        }
+      }
+
+      while(dataIn == 12){
+        // Giảm góc
+        gocHong --;
+        gocHong = constrain(gocHong, hongMin, hongMax);
+        hongServo.write(gocHong);
+        delay(armDelay);
+        
+        // Kiểm tra tín hiệu gửi đến
+        // Khi người dùng nhả phím điều khiển, app sẽ gửi tới một mã dừng (99)
+        // Hoặc người dùng gửi mã khác
+        if(Bluetooth.available() > 0){
+          dataIn = Bluetooth.read();
+
+          // Kết thúc chuyển động
+          if(dataIn != 12 && isRecordingArm && soChuyenDongTay < MAX_RECORDING_LENGTH){
+            gocKetThuc[soChuyenDongTay] = gocHong;
+            soChuyenDongTay ++;
+          }
+        }
       }
     }
+    
 
     /* ------------------- Chức năng phụ khác -------------------- */
-    // Dò line
-    if(dataIn == 13){
-      // Bắt đầu do line
-      doLine();
-
-      // Dừng xe khi dò line kết thúc
-      dungXe();
-    }
-
     // Né vật cản
-    if(dataIn == 14){
+    if(dataIn == 13){
+      // Thu cánh tay lại, tránh trường hợp cánh tay cản dò line
+      resetArm();
+
       // Bắt đầu di chuyển và né vật cản
       tranhVatCan();
 
       // Dừng xe khi kết thúc
       dungXe();
+    }
+
+    // 14 là dừng né vật cản hoặc dùng bất kỳ nút nào khác để dừng
+
+    /* ------------------- Chức năng record -------------------- */
+
+    /* ------------------- Record cánh tay -------------------- */
+    // Bắt đầu ghi
+    if (dataIn == 15){
+      // Nếu không đang ghi
+      if(!isRecordingArm){
+        // Reset tay
+        resetArm();
+        
+        // Bật ghi
+        isRecordingArm = 1;
+
+        // Xóa thao tác đã lưu trước đó
+        soChuyenDongTay = 0;
+      }
+    }
+
+    // Dừng ghi
+    if(dataIn == 16){
+      isRecordingArm = 0;
+    }
+
+    // Phát những chuyển động đã ghi
+    if(dataIn == 17){
+      // Reset vị trí cánh tay
+      resetArm();
+
+      int stopCon = 0;
+      
+      // Với mỗi chuyển động
+      for (i = 0; i < soChuyenDongTay && !stopCon; i++){
+        // Chuyển động bàn tay
+        if(dsChuyenDongTay[i] == 1){
+
+          // Tăng góc
+          if(gocBatDau[i] < gocKetThuc[i]){
+            for (j = gocBatDau[i]; j <= gocKetThuc[i]; j++){
+              gocBantay = j;
+              bantayServo.write(gocBantay);
+              delay(armDelay);
+
+              // Kiểm tra tín hiệu điều khiển
+              if(Bluetooth.available()){
+                dataIn = Bluetooth.read();
+
+                if(dataIn != 17){
+                  stopCon = 1;
+                  break;
+                }
+              }
+            }
+          }
+
+          // Giảm góc
+          else{
+            for (j = gocBatDau[i]; j >= gocKetThuc[i]; j--){
+              gocBantay = j;
+              bantayServo.write(gocBantay);
+              delay(armDelay);
+
+              // Kiểm tra tín hiệu điều khiển
+              if(Bluetooth.available()){
+                dataIn = Bluetooth.read();
+
+                if(dataIn != 17){
+                  stopCon = 1;
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        // Chuyển động khủy tay
+        if(dsChuyenDongTay[i] == 2){
+
+          // Tăng góc
+          if(gocBatDau[i] < gocKetThuc[i]){
+            for (j = gocBatDau[i]; j <= gocKetThuc[i]; j++){
+              gocKhuytay = j;
+              khuytayServo.write(gocKhuytay);
+              delay(armDelay);
+
+              // Kiểm tra tín hiệu điều khiển
+              if(Bluetooth.available()){
+                dataIn = Bluetooth.read();
+
+                if(dataIn != 17){
+                  stopCon = 1;
+                  break;
+                }
+              }
+            }
+          }
+
+          // Giảm góc
+          else{
+            for (j = gocBatDau[i]; j >= gocKetThuc[i]; j--){
+              gocKhuytay = j;
+              khuytayServo.write(gocKhuytay);
+              delay(armDelay);
+
+              // Kiểm tra tín hiệu điều khiển
+              if(Bluetooth.available()){
+                dataIn = Bluetooth.read();
+
+                if(dataIn != 17){
+                  stopCon = 1;
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        // Chuyển động vai
+        if(dsChuyenDongTay[i] == 3){
+
+          // Tăng góc
+          if(gocBatDau[i] < gocKetThuc[i]){
+            for (j = gocBatDau[i]; j <= gocKetThuc[i]; j++){
+              gocVai = j;
+              vaiServo.write(gocVai);
+              delay(armDelay);
+
+              // Kiểm tra tín hiệu điều khiển
+              if(Bluetooth.available()){
+                dataIn = Bluetooth.read();
+
+                if(dataIn != 17){
+                  stopCon = 1;
+                  break;
+                }
+              }
+            }
+          }
+
+          // Giảm góc
+          else{
+            for (j = gocBatDau[i]; j >= gocKetThuc[i]; j--){
+              gocVai = j;
+              vaiServo.write(gocVai);
+              delay(armDelay);
+
+              // Kiểm tra tín hiệu điều khiển
+              if(Bluetooth.available()){
+                dataIn = Bluetooth.read();
+
+                if(dataIn != 17){
+                  stopCon = 1;
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        // Chuyển động hông
+        if(dsChuyenDongTay[i] == 4){
+
+          // Tăng góc
+          if(gocBatDau[i] < gocKetThuc[i]){
+            for (j = gocBatDau[i]; j <= gocKetThuc[i]; j++){
+              gocHong = j;
+              hongServo.write(gocHong);
+              delay(armDelay);
+
+              // Kiểm tra tín hiệu điều khiển
+              if(Bluetooth.available()){
+                dataIn = Bluetooth.read();
+
+                if(dataIn != 17){
+                  stopCon = 1;
+                  break;
+                }
+              }
+            }
+          }
+
+          // Giảm góc
+          else{
+            for (j = gocBatDau[i]; j >= gocKetThuc[i]; j--){
+              gocHong = j;
+              hongServo.write(gocHong);
+              delay(armDelay);
+
+              // Kiểm tra tín hiệu điều khiển
+              if(Bluetooth.available()){
+                dataIn = Bluetooth.read();
+
+                if(dataIn != 17){
+                  stopCon = 1;
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        delay(500);
+        
+      }
+    }
+
+    /* -------------------    Record xe    -------------------- */
+    // Bắt đầu ghi
+    if(dataIn == 18){
+      
+    }
+
+    // Dừng ghi
+    if(dataIn == 19){
+      
+    }
+
+    // Phát
+    if(dataIn == 20){
+      
     }
   }
 }
