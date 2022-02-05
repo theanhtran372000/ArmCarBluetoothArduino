@@ -26,7 +26,7 @@ const int trig = 13;  // Chân phát sóng
 const int MAX_RECORDING_LENGTH = 20; // Độ dài tối đa của Record
 const int armDelay = 10 ;   // Thời gian delay giữa 2 lần điều khiển
 const int avoidDelay = 10;  // Thời gian delay giữa 2 lần đo khoảng cách
-const int minDistance = 30; // 20cm là khoảng cách tối thiểu để tránh vật cản
+const int minDistance = 40; // 40cm là khoảng cách tối thiểu để tránh vật cản
 const int maxDistance = 300;// Khoảng cách tối đa của hàm đo khoảng cách
                             // Mặc dù khoảng cách tối đa của cảm biến sóng âm là 450 cm
                             // Nhưng em sẽ chỉ giới hạn ở mức 300cm để kết quả được chính xác hơn
@@ -51,13 +51,20 @@ int gocHong;
 
 // Biến record chuyển động tay
 int isRecordingArm = 0;
-int dsChuyenDongTay[20]; // 1 là bàn tay, 2 là khủy tay, 3 là vai, 4 là hông
+int dsChuyenDongTay[MAX_RECORDING_LENGTH]; // 1 là bàn tay, 2 là khủy tay, 3 là vai, 4 là hông
 int gocBatDau[MAX_RECORDING_LENGTH];
 int gocKetThuc[MAX_RECORDING_LENGTH];
 int soChuyenDongTay = 0;
 
+// Biến record chuyển động xe
+int isRecordingCar = 0;
+int dsChuyenDongXe[MAX_RECORDING_LENGTH]; // 1 là tiến, 2 là trái, 3 là phải, 4 là lùi
+unsigned long thoiGianChuyenDong[MAX_RECORDING_LENGTH];
+int soChuyenDongXe = 0;
+
 // Biến khác
 int i, j;
+unsigned long t;
 
 // Bluetooth
 SoftwareSerial Bluetooth(0, 1); // Khai báo RX = 0, TX = 1, kết nối tới HC06
@@ -194,7 +201,7 @@ void tranhVatCan(){
     khoangCachGiua = doKhoangCach();
     delay(avoidDelay);
 
-    // Nếu khoảng cách tới vật cản nhỏ hơn 30cm (có thể đổi số khác)
+    // Nếu khoảng cách tới vật cản nhỏ hơn 40cm (có thể đổi số khác)
     if (khoangCachGiua <= minDistance){
       // Lập tức dừng xe lại
       dungXe();
@@ -250,9 +257,6 @@ void tranhVatCan(){
     }
   }while(dataIn == 13);
 }
-
-/* ------------------- Hàm record -------------------- */
-
 
 /* ------------------- Hàm cài đặt ban đầu -------------------- */
 void setup() { 
@@ -316,22 +320,94 @@ void loop() {
 
     // Xe tiến
     if(dataIn == 0){
+      if(isRecordingCar && soChuyenDongXe < MAX_RECORDING_LENGTH){
+        dsChuyenDongXe[soChuyenDongXe] = 1; // tiến
+        t = millis(); // thời gian bắt đầu
+      }
+      
       tienXe(200);
+      
+      // chờ tín hiệu mới
+      while(dataIn == 0){
+        if(Bluetooth.available()){
+          dataIn = Bluetooth.read();
+        }
+      }
+
+      // Kết thúc hành động
+      if(isRecordingCar && soChuyenDongXe < MAX_RECORDING_LENGTH){
+        thoiGianChuyenDong[soChuyenDongXe] = millis() - t;
+        soChuyenDongXe ++;
+      }
     }
 
     // Rẽ trái
     if(dataIn == 1){
+      if(isRecordingCar && soChuyenDongXe < MAX_RECORDING_LENGTH){
+        dsChuyenDongXe[soChuyenDongXe] = 2; // rẽ trái
+        t = millis(); // thời gian bắt đầu
+      }
+      
       reTrai(150);
+      
+      // chờ tín hiệu mới
+      while(dataIn == 1){
+        if(Bluetooth.available()){
+          dataIn = Bluetooth.read();
+        }
+      }
+
+      // Kết thúc hành động
+      if(isRecordingCar && soChuyenDongXe < MAX_RECORDING_LENGTH){
+        thoiGianChuyenDong[soChuyenDongXe] = millis() - t;
+        soChuyenDongXe ++;
+      }
     }
 
     // Rẽ phải
     if(dataIn == 2){
+      if(isRecordingCar && soChuyenDongXe < MAX_RECORDING_LENGTH){
+        dsChuyenDongXe[soChuyenDongXe] = 3; // rẽ phải
+        t = millis(); // thời gian bắt đầu
+      }
+      
       rePhai(150);
+      
+      // chờ tín hiệu mới
+      while(dataIn == 2){
+        if(Bluetooth.available()){
+          dataIn = Bluetooth.read();
+        }
+      }
+
+      // Kết thúc hành động
+      if(isRecordingCar && soChuyenDongXe < MAX_RECORDING_LENGTH){
+        thoiGianChuyenDong[soChuyenDongXe] = millis() - t;
+        soChuyenDongXe ++;
+      }
     }
     
     // Lùi xe
     if(dataIn == 3){
+      if(isRecordingCar && soChuyenDongXe < MAX_RECORDING_LENGTH){
+        dsChuyenDongXe[soChuyenDongXe] = 4; // lùi
+        t = millis(); // thời gian bắt đầu
+      }
+      
       luiXe(200);
+
+      // chờ tín hiệu mới
+      while(dataIn == 3){
+        if(Bluetooth.available()){
+          dataIn = Bluetooth.read();
+        }
+      }
+
+      // Kết thúc hành động
+      if(isRecordingCar && soChuyenDongXe < MAX_RECORDING_LENGTH){
+        thoiGianChuyenDong[soChuyenDongXe] = millis() - t;
+        soChuyenDongXe ++;
+      }
     }
 
     // Dừng xe
@@ -657,6 +733,8 @@ void loop() {
       // Reset vị trí cánh tay
       resetArm();
 
+      delay(500);
+
       int stopCon = 0;
       
       // Với mỗi chuyển động
@@ -837,17 +915,62 @@ void loop() {
     /* -------------------    Record xe    -------------------- */
     // Bắt đầu ghi
     if(dataIn == 18){
-      
+      // Bật ghi
+      isRecordingCar = 1;
+
+      // Xóa thao tác đã lưu trước đó
+      soChuyenDongXe = 0;
     }
 
     // Dừng ghi
     if(dataIn == 19){
-      
+      // Tắt ghi
+      isRecordingCar = 0;
     }
 
     // Phát
     if(dataIn == 20){
       
+      // Với mỗi chuyển động
+      for (i = 0; i < soChuyenDongXe; i++){
+        // tiến
+        if(dsChuyenDongXe[i] == 1){
+          tienXe(200);
+          delay(thoiGianChuyenDong[i]);
+          dungXe();
+        }
+
+        // rẽ trái
+        if(dsChuyenDongXe[i] == 2){
+          reTrai(150);
+          delay(thoiGianChuyenDong[i]);
+          dungXe();
+        }
+
+        // rẽ phải
+        if(dsChuyenDongXe[i] == 3){
+          rePhai(150);
+          delay(thoiGianChuyenDong[i]);
+          dungXe();
+        }
+
+        // lùi
+        if(dsChuyenDongXe[i] == 4){
+          luiXe(200);
+          delay(thoiGianChuyenDong[i]);
+          dungXe();
+        }
+
+        delay(500); // nghỉ một chút giữa 2 lần chuyển động để xe ổn định vị trí
+
+        if(Bluetooth.available() > 0){
+          dataIn = Bluetooth.read();
+
+          if(dataIn != 20){
+            break;
+          }
+        }
+      }
     }
   }
 }
