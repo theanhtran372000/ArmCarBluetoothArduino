@@ -25,6 +25,8 @@ Hệ thống gồm 2 file:
 - Trong thư mục ControllApp chứa file cài đặt (.apk) và file mã nguồn (.aia) của ứng dụng điều khiển
   - Cài đặt ứng dụng bằng cách tải file apk về máy và cài đặt bình thường.
   - Để xem mã nguồn của app, truy cập vào trang web, đăng ký tài khoản và mở file mã nguồn (.aia) trong tài khoản của bạn. Tab designer hiển thị giao diện và tab blocks để hiện thị mã nguồn của ứng dụng.
+- Trong thư mục BoardDesign chứa file thiết kế Board (.fzz)
+  - Để xem file thiết kế, tải phần mềm Fritzing về, mở file board.fzz, chuyển sang tab Breadboard để xem thông tin thiết kế hệ thống
 
 ## 3. Demo
 Đường dẫn tới video demo: [link](https://drive.google.com/file/d/1rOdfwhc7LXM9htyY-ibUvgvHsO_4BAgK/view?usp=sharing)
