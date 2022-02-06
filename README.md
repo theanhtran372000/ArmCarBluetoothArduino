@@ -14,9 +14,9 @@
   -	Lập trình điều khiển khung xe
   -	Lập trình chức năng tránh vật cản
   -	Lập trình chức năng ghi nhớ thao tác của xe
--	Cả nhóm
-  - Phân tích, thiết kế hệ thống
+- Cả nhóm
   - Viết báo cáo
+  - Phân tích thiết kế hệ thống
 
 ## 2. Mô tả thành phần
 Hệ thống gồm 2 file:
