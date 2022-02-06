@@ -185,6 +185,11 @@ int doKhoangCach(){
   // Tương đương với 29.412 microsecs để đi 1 cm
   // Sóng âm phải phát đi và dội lại nên khoảng cách phải chia 2
   int khoangcach = int (thoigian / 2 / 29.412);
+
+  // Trường hợp sóng âm không dội lại
+  if(khoangcach == 0){
+    khoangcach = maxDistance;
+  }
   
   return min(khoangcach, maxDistance); // giới hạn kết quả trả về (tối đa 300cm = 3m)
 }
